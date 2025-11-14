@@ -8,6 +8,7 @@ from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from typing import Optional
 import uvicorn
 import logging
 from pathlib import Path
@@ -106,10 +107,6 @@ class ConversationSummary(BaseModel):
     message_count: int
     exchanges: int
     last_updated: Optional[str]
-
-
-# Import typing for Optional
-from typing import Optional
 
 
 # Startup event

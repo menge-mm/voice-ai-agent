@@ -2,7 +2,7 @@
 OpenAI API Integration for Chat Completions
 """
 
-import openai
+from openai import OpenAI
 import os
 from typing import Optional, Dict, List, AsyncGenerator
 import logging
@@ -30,7 +30,7 @@ class OpenAIClient:
                 "Set OPENAI_API_KEY environment variable or pass api_key parameter."
             )
 
-        openai.api_key = self.api_key
+        self.client = OpenAI(api_key=self.api_key)
         self.model = model
         self.conversations: Dict[str, List[Dict]] = {}
         self.default_system_prompt = default_system_prompt or self._get_default_system_prompt()
@@ -51,7 +51,7 @@ Remember you're having a voice conversation, so speak naturally!"""
     def _test_connection(self):
         """Test OpenAI API connection on initialization"""
         try:
-            openai.Model.list()
+            self.client.models.list()
             logger.info("✓ OpenAI API connection successful")
         except Exception as e:
             logger.error(f"✗ OpenAI connection test failed: {e}")
@@ -98,13 +98,12 @@ Remember you're having a voice conversation, so speak naturally!"""
 
             logger.info(f"Requesting OpenAI completion for: {text[:50]}...")
 
-            # Call OpenAI API
-            response = openai.ChatCompletion.create(
+            # Call OpenAI API (v1 API)
+            response = self.client.chat.completions.create(
                 model=self.model,
                 messages=messages,
                 temperature=temperature,
-                max_tokens=max_tokens,
-                stream=False
+                max_tokens=max_tokens
             )
 
             # Extract response
@@ -120,18 +119,20 @@ Remember you're having a voice conversation, so speak naturally!"""
 
             return response_text
 
-        except openai.error.RateLimitError as e:
-            logger.error(f"✗ OpenAI rate limit exceeded: {e}")
-            raise Exception("API rate limit exceeded. Please try again later.")
-        except openai.error.AuthenticationError as e:
-            logger.error(f"✗ OpenAI authentication failed: {e}")
-            raise Exception("API authentication failed. Check your API key.")
-        except openai.error.InvalidRequestError as e:
-            logger.error(f"✗ OpenAI invalid request: {e}")
-            raise Exception(f"Invalid request to OpenAI API: {e}")
         except Exception as e:
-            logger.error(f"✗ OpenAI completion failed: {e}")
-            raise
+            error_msg = str(e)
+            if "rate_limit" in error_msg.lower():
+                logger.error(f"✗ OpenAI rate limit exceeded: {e}")
+                raise Exception("API rate limit exceeded. Please try again later.")
+            elif "authentication" in error_msg.lower() or "api_key" in error_msg.lower():
+                logger.error(f"✗ OpenAI authentication failed: {e}")
+                raise Exception("API authentication failed. Check your API key.")
+            elif "invalid" in error_msg.lower():
+                logger.error(f"✗ OpenAI invalid request: {e}")
+                raise Exception(f"Invalid request to OpenAI API: {e}")
+            else:
+                logger.error(f"✗ OpenAI completion failed: {e}")
+                raise
 
     async def get_streaming_completion(
         self,
@@ -159,8 +160,8 @@ Remember you're having a voice conversation, so speak naturally!"""
 
             logger.info(f"Requesting OpenAI streaming completion for: {text[:50]}...")
 
-            # Create streaming completion
-            response = openai.ChatCompletion.create(
+            # Create streaming completion (v1 API)
+            stream = self.client.chat.completions.create(
                 model=self.model,
                 messages=messages,
                 temperature=temperature,
@@ -172,8 +173,8 @@ Remember you're having a voice conversation, so speak naturally!"""
             full_response = ""
 
             # Yield chunks
-            for chunk in response:
-                if chunk.choices[0].delta.get("content"):
+            for chunk in stream:
+                if chunk.choices[0].delta.content:
                     content = chunk.choices[0].delta.content
                     full_response += content
                     yield content
