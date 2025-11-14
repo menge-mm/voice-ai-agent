@@ -31,3 +31,8 @@ python-dotenv==1.0.1
 #
 # Note: This uses HuggingFace transformers pipeline for TTS (NOT discontinued Coqui)
 # Supported TTS models: Bark, SpeechT5, Parler-TTS
+
+# Testing Dependencies
+pytest==8.3.4
+pytest-asyncio==0.24.0
+httpx==0.28.1  # For TestClient
