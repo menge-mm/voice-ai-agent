@@ -1,12 +1,12 @@
 """
-Text-to-Speech Engine using Coqui XTTS-v2
-Following implementation from huggingface.co/spaces/coqui/xtts
+Text-to-Speech Engine using HuggingFace Transformers
+Using MAINTAINED models: Bark, SpeechT5, Parler-TTS (2025)
 """
 
 import torch
-from TTS.api import TTS
+from transformers import pipeline
 import io
-import soundfile as sf
+import scipy.io.wavfile
 from pathlib import Path
 import logging
 from typing import Optional, Generator
@@ -15,52 +15,67 @@ import os
 logger = logging.getLogger(__name__)
 
 
-class XTTSEngine:
+class TransformersTTSEngine:
     """
-    Text-to-Speech engine using Coqui XTTS-v2
-    Supports 17 languages and voice cloning
+    Text-to-Speech engine using HuggingFace Transformers
+    Supports multiple models: Bark (default), Speech T5, Parler-TTS
     """
 
     def __init__(
         self,
-        model_name: str = "tts_models/multilingual/multi-dataset/xtts_v2",
+        model_name: str = "suno/bark-small",
         force_cpu: bool = False
     ):
+        """
+        Initialize TTS engine
+
+        Supported models:
+        - "suno/bark-small" - Fast, multilingual, expressive (DEFAULT)
+        - "suno/bark" - Full Bark model, higher quality
+        - "microsoft/speecht5_tts" - High quality, requires speaker embeddings
+        - "parler-tts/parler-tts-mini-v1" - Latest from HuggingFace
+        """
         self.model_name = model_name
-        self.tts = None
+        self.tts_pipeline = None
         self.device = "cpu" if force_cpu else ("cuda" if torch.cuda.is_available() else "cpu")
-        self.default_voice_path = None
         self.is_loaded = False
-        self.supported_languages = [
-            "en", "es", "fr", "de", "it", "pt", "pl", "tr",
-            "ru", "nl", "cs", "ar", "zh-cn", "ja", "hu", "ko", "hi"
-        ]
+        self.supported_languages = self._get_supported_languages()
+
+    def _get_supported_languages(self) -> list:
+        """Get supported languages based on model"""
+        if "bark" in self.model_name.lower():
+            # Bark supports multiple languages
+            return ["en", "de", "es", "fr", "hi", "it", "ja", "ko", "pl", "pt", "ru", "tr", "zh"]
+        elif "speecht5" in self.model_name.lower():
+            # SpeechT5 primarily English
+            return ["en"]
+        elif "parler" in self.model_name.lower():
+            # Parler-TTS is multilingual
+            return ["en", "es", "fr", "de", "it", "pt", "pl", "hi"]
+        else:
+            return ["en"]
 
     def load_model(self):
-        """Load the XTTS model into memory"""
+        """Load the TTS model into memory"""
         if self.is_loaded:
             logger.info("TTS model already loaded")
             return
 
         try:
-            logger.info(f"Loading XTTS model '{self.model_name}' on {self.device}...")
+            logger.info(f"Loading TTS model '{self.model_name}' on {self.device}...")
 
-            # Initialize TTS with XTTS-v2
-            self.tts = TTS(
-                model_name=self.model_name,
-                progress_bar=False,
-                gpu=(self.device == "cuda")
+            # Initialize TTS pipeline
+            self.tts_pipeline = pipeline(
+                "text-to-speech",
+                model=self.model_name,
+                device=0 if self.device == "cuda" else -1
             )
 
-            # Move to device if CUDA
-            if self.device == "cuda":
-                self.tts.to(self.device)
-
             self.is_loaded = True
-            logger.info(f"✓ XTTS model loaded successfully on {self.device}")
+            logger.info(f"✓ TTS model loaded successfully on {self.device}")
 
         except Exception as e:
-            logger.error(f"✗ Failed to load XTTS model: {e}")
+            logger.error(f"✗ Failed to load TTS model: {e}")
             raise
 
     def synthesize(
@@ -68,16 +83,18 @@ class XTTSEngine:
         text: str,
         language: str = "en",
         speaker_wav: Optional[str] = None,
-        output_path: Optional[str] = None
+        output_path: Optional[str] = None,
+        **kwargs
     ) -> bytes:
         """
         Synthesize speech from text
 
         Args:
             text: Text to convert to speech
-            language: Language code (en, es, fr, etc.)
-            speaker_wav: Path to speaker reference audio for voice cloning
+            language: Language code (currently used for validation only)
+            speaker_wav: Not used for Bark (kept for API compatibility)
             output_path: Optional path to save audio file
+            **kwargs: Additional parameters for the model
 
         Returns:
             Audio data as bytes (WAV format)
@@ -87,37 +104,42 @@ class XTTSEngine:
 
         # Validate language
         if language not in self.supported_languages:
-            logger.warning(f"Language '{language}' not supported, falling back to 'en'")
-            language = "en"
-
-        # Use default voice if none provided
-        if speaker_wav is None:
-            speaker_wav = self.default_voice_path or self._get_default_voice(language)
-
-        if not speaker_wav or not Path(speaker_wav).exists():
-            raise ValueError(
-                f"No voice file provided or found. "
-                f"Please provide a speaker_wav or set DEFAULT_VOICE_PATH"
-            )
+            logger.warning(f"Language '{language}' may not be supported, using default")
 
         try:
-            logger.info(f"Synthesizing text in '{language}': {text[:50]}...")
+            logger.info(f"Synthesizing text: {text[:50]}...")
 
-            # Generate speech using XTTS
-            wav = self.tts.tts(
-                text=text,
-                speaker_wav=speaker_wav,
-                language=language
+            # Generate speech using transformers pipeline
+            # Bark supports special tokens like [laughs], [sighs], etc.
+            forward_params = kwargs.get("forward_params", {"do_sample": True})
+
+            speech = self.tts_pipeline(
+                text,
+                forward_params=forward_params
             )
 
-            # Convert to bytes (WAV format)
+            # Extract audio data and sampling rate
+            audio_array = speech["audio"]
+            sampling_rate = speech["sampling_rate"]
+
+            # Convert to WAV bytes
             audio_buffer = io.BytesIO()
-            sf.write(
+
+            # Ensure audio is in correct format
+            if isinstance(audio_array, torch.Tensor):
+                audio_array = audio_array.cpu().numpy()
+
+            # Flatten if multi-dimensional
+            if len(audio_array.shape) > 1:
+                audio_array = audio_array.squeeze()
+
+            # Write as WAV using scipy
+            scipy.io.wavfile.write(
                 audio_buffer,
-                wav,
-                samplerate=22050,  # XTTS output sample rate
-                format='WAV'
+                rate=sampling_rate,
+                data=audio_array
             )
+
             audio_buffer.seek(0)
             audio_bytes = audio_buffer.read()
 
@@ -147,7 +169,7 @@ class XTTSEngine:
         Args:
             text: Text to convert to speech
             language: Language code
-            speaker_wav: Path to speaker reference audio
+            speaker_wav: Not used for Bark
             chunk_size: Size of chunks to yield
 
         Yields:
@@ -167,73 +189,43 @@ class XTTSEngine:
         language: str = "en"
     ) -> bytes:
         """
-        Clone a voice from a reference audio and generate speech
+        Voice cloning not directly supported by Bark
+        Returns standard synthesis
+
+        For true voice cloning, use:
+        - StyleTTS2
+        - F5-TTS
+        - Tortoise TTS
 
         Args:
             text: Text to speak
-            speaker_wav_path: Path to 6+ second audio of target voice
+            speaker_wav_path: Path to reference audio (not used for Bark)
             language: Language to speak in
 
         Returns:
-            Audio bytes with cloned voice
+            Audio bytes with standard voice
         """
-        if not self.is_loaded:
-            self.load_model()
-
-        if not Path(speaker_wav_path).exists():
-            raise FileNotFoundError(f"Voice file not found: {speaker_wav_path}")
-
-        logger.info(f"Cloning voice from {speaker_wav_path}")
+        logger.warning(
+            "Voice cloning not supported with Bark. "
+            "For voice cloning, consider using F5-TTS or StyleTTS2. "
+            "Generating with default voice."
+        )
 
         return self.synthesize(
             text=text,
-            language=language,
-            speaker_wav=speaker_wav_path
+            language=language
         )
 
     def set_default_voice(self, voice_path: str):
-        """Set the default voice for TTS"""
-        voice_file = Path(voice_path)
-
-        if not voice_file.exists():
-            raise FileNotFoundError(f"Voice file not found: {voice_path}")
-
-        self.default_voice_path = str(voice_file.absolute())
-        logger.info(f"✓ Default voice set to {self.default_voice_path}")
+        """
+        Set default voice - not applicable for Bark
+        Kept for API compatibility
+        """
+        logger.warning("Default voice setting not applicable for Bark model")
 
     def get_supported_languages(self) -> list:
         """Return list of supported languages"""
         return self.supported_languages
-
-    def _get_default_voice(self, language: str) -> Optional[str]:
-        """
-        Get default voice for a language from voices directory
-
-        Args:
-            language: Language code
-
-        Returns:
-            Path to default voice file or None
-        """
-        # Check environment variable
-        env_voice = os.getenv("DEFAULT_VOICE_PATH")
-        if env_voice and Path(env_voice).exists():
-            return env_voice
-
-        # Check in voices directory
-        voices_dir = Path("voices")
-        if voices_dir.exists():
-            # Try language-specific voice
-            voice_file = voices_dir / f"{language}_default.wav"
-            if voice_file.exists():
-                return str(voice_file.absolute())
-
-            # Try generic default
-            default_voice = voices_dir / "default.wav"
-            if default_voice.exists():
-                return str(default_voice.absolute())
-
-        return None
 
     def is_ready(self) -> bool:
         """Check if TTS engine is loaded and ready"""
@@ -242,9 +234,13 @@ class XTTSEngine:
     def unload_model(self):
         """Unload the model from memory"""
         if self.is_loaded:
-            del self.tts
-            self.tts = None
+            del self.tts_pipeline
+            self.tts_pipeline = None
             self.is_loaded = False
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
             logger.info("✓ TTS model unloaded")
+
+
+# Backwards compatibility alias
+XTTSEngine = TransformersTTSEngine

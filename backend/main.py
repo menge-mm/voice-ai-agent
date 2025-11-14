@@ -123,16 +123,15 @@ async def startup_event():
     try:
         logger.info("Initializing TTS engine...")
         force_cpu = os.getenv("FORCE_CPU", "false").lower() == "true"
-        tts_engine = XTTSEngine(force_cpu=force_cpu)
+        tts_model = os.getenv("TTS_MODEL", "suno/bark-small")
 
-        # Set default voice if configured
-        default_voice = os.getenv("DEFAULT_VOICE_PATH")
-        if default_voice and Path(default_voice).exists():
-            tts_engine.set_default_voice(default_voice)
+        tts_engine = XTTSEngine(model_name=tts_model, force_cpu=force_cpu)
 
-        # Load model
+        # Load model (Bark doesn't need voice files!)
         tts_engine.load_model()
         logger.info("✓ TTS engine initialized successfully")
+        logger.info(f"  Model: {tts_model}")
+        logger.info(f"  Languages: {', '.join(tts_engine.get_supported_languages())}")
 
     except Exception as e:
         logger.error(f"✗ Failed to initialize TTS engine: {e}")
