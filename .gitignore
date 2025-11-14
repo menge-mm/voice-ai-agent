@@ -1,0 +1,142 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environment
+venv/
+ENV/
+env/
+.venv
+
+# Environment Variables
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+logs/
+*.log.*
+
+# TTS Cache
+.cache/
+tts_cache/
+*.pth
+*.pt
+
+# Voice Files (optional - uncomment if you don't want to commit voices)
+# voices/
+
+# Audio Files
+*.wav
+*.mp3
+*.ogg
+*.flac
+*.m4a
+# Exception: keep example voices
+!voices/example*.wav
+
+# Model Files
+models/
+*.onnx
+*.bin
+*.safetensors
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Distribution / packaging
+.Python
+build/
+dist/
+*.egg-info/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Redis dump
+dump.rdb
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Node modules (if frontend uses npm)
+node_modules/
+package-lock.json
+yarn.lock
+
+# Build outputs
+frontend/dist/
+frontend/build/
+
+# Media uploads
+uploads/
+media/
+
+# Secrets
+*.key
+*.pem
+*.crt
+secrets/
+
+# Docker
+docker-compose.override.yml
+.dockerignore
+
+# Monitoring
+*.pid
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# Large files
+*.tar.gz
+*.zip
+*.rar
