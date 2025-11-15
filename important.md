@@ -1,0 +1,4 @@
+- https://huggingface.co/spaces/course-demos/speech-to-speech-translation/resolve/main/app.py
+- https://huggingface.co/spaces/gobeldan/insanely-fast-whisper-webui/resolve/main/app.py
+- https://huggingface.co/spaces/gobeldan/insanely-fast-whisper-webui/resolve/main/languages.py
+- https://huggingface.co/spaces/gobeldan/insanely-fast-whisper-webui/resolve/main/subtitle_manager.py    Started server process [61074]
