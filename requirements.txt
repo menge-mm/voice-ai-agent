@@ -2,14 +2,16 @@
 # Using LATEST versions and MAINTAINED libraries (2025)
 
 # Web Framework
-fastapi==0.115.5
+fastapi==0.116.1
 uvicorn[standard]==0.32.1
 python-multipart==0.0.17
 
-# AI & ML - HuggingFace Ecosystem (LATEST)
+# AI & ML - HuggingFace Ecosystem
 transformers==4.47.1
 accelerate==1.2.1
+sentencepiece>=0.1.99
 openai==1.57.2
+numpy<2.0,>=1.21.0  # Must be <2.0 for compatibility
 
 # Deep Learning (PyTorch - LATEST, Python 3.11/3.12 compatible)
 torch==2.5.1
@@ -19,6 +21,7 @@ torchaudio==2.5.1
 soundfile==0.12.1
 scipy==1.14.1
 librosa==0.10.2
+speechbrain>=1.0.0  # For high-quality speaker embeddings
 
 # Data Models & Validation (Pydantic v2 - LATEST)
 pydantic==2.10.3
