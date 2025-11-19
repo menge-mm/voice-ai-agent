@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useRef } from 'react'
 import { useChatStore } from '@/stores'
 import type {
   Message,
@@ -40,11 +41,13 @@ interface SendMessageParams {
   generateAudio?: boolean
 }
 
-async function sendMessage(params: SendMessageParams): Promise<{
+async function sendMessage(params: SendMessageParams & {
+  onStream?: (chunk: string, accumulated: string) => void
+}): Promise<{
   userMessage: Message
   assistantMessage: Message
 }> {
-  const { conversationId, content, generateAudio = false } = params
+  const { conversationId, content, generateAudio = false, onStream } = params
 
   // Create user message
   const userMessage: Message = {
@@ -57,7 +60,7 @@ async function sendMessage(params: SendMessageParams): Promise<{
     attachments: params.attachments,
   }
 
-  // Call backend API
+  // Call backend SSE streaming API
   const request: ChatRequest = {
     text: content,
     user_id: 1,
@@ -66,7 +69,7 @@ async function sendMessage(params: SendMessageParams): Promise<{
     language: 'en',
   }
 
-  const response = await fetch('/api/v1/chat', {
+  const response = await fetch('/api/v1/chat/stream', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request),
@@ -76,23 +79,87 @@ async function sendMessage(params: SendMessageParams): Promise<{
     throw new Error(`Failed to send message: ${response.statusText}`)
   }
 
-  const data: ChatResponse = await response.json()
+  // Read SSE stream
+  const reader = response.body?.getReader()
+  const decoder = new TextDecoder()
+
+  if (!reader) {
+    throw new Error('Response body is not readable')
+  }
+
+  let accumulatedText = ''
+  let finalConversationId = conversationId || 'new'
+  let audioUrl: string | undefined
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+
+      if (done) break
+
+      const chunk = decoder.decode(value, { stream: true })
+      const lines = chunk.split('\n')
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i]
+        if (line.startsWith('event:')) {
+          const eventType = line.substring(6).trim()
+          const nextLineIdx = i + 1
+
+          if (nextLineIdx < lines.length && lines[nextLineIdx].startsWith('data:')) {
+            const dataLine = lines[nextLineIdx].substring(5).trim()
+
+            try {
+              const data = JSON.parse(dataLine)
+
+              switch (eventType) {
+                case 'content':
+                  accumulatedText += data.chunk
+                  onStream?.(data.chunk, accumulatedText)
+                  break
+
+                case 'metadata':
+                  finalConversationId = data.conversation_id
+                  break
+
+                case 'audio':
+                  audioUrl = `data:audio/wav;base64,${data.audio}`
+                  break
+
+                case 'error':
+                  console.error('Stream error:', data.message)
+                  break
+
+                case 'done':
+                  // Stream complete
+                  break
+              }
+            } catch (e) {
+              // Ignore JSON parse errors for partial chunks
+            }
+          }
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock()
+  }
 
   // Create assistant message
   const assistantMessage: Message = {
     id: crypto.randomUUID(),
     role: 'assistant',
-    content: data.text,
+    content: accumulatedText,
     timestamp: new Date(),
-    conversationId: data.conversation_id,
+    conversationId: finalConversationId,
     status: 'completed',
-    audioUrl: data.audio ? `data:audio/wav;base64,${data.audio}` : undefined,
+    audioUrl,
   }
 
-  // Update user message with correct conversation ID (create new object to trigger React re-render)
+  // Update user message with correct conversation ID
   const updatedUserMessage: Message = {
     ...userMessage,
-    conversationId: data.conversation_id,
+    conversationId: finalConversationId,
     status: 'completed',
   }
 
@@ -134,21 +201,52 @@ export function useStreamMessage() {
   const queryClient = useQueryClient()
   const setStreamState = useChatStore((state) => state.setStreamState)
 
+  // Use ref to store current stream info for callbacks
+  const streamInfoRef = useRef({ messageId: '', conversationId: '' })
+
   return useMutation({
-    mutationFn: sendMessage,
+    mutationFn: (params: SendMessageParams) => {
+      // Call sendMessage with streaming callback using stored IDs
+      return sendMessage({
+        ...params,
+        onStream: (_chunk: string, accumulated: string) => {
+          // Update stream state with accumulated content
+          setStreamState({
+            isStreaming: true,
+            conversationId: streamInfoRef.current.conversationId,
+            messageId: streamInfoRef.current.messageId,
+            content: accumulated,
+            thinking: [],
+          })
+        },
+      })
+    },
     onMutate: async (params) => {
+      const messageId = crypto.randomUUID()
+      const conversationId = params.conversationId || 'new'
+
+      // Store for use in mutationFn callback
+      streamInfoRef.current = { messageId, conversationId }
+
+      // Set initial stream state IMMEDIATELY
+      setStreamState({
+        isStreaming: true,
+        conversationId,
+        messageId,
+        content: '',
+        thinking: [],
+      })
+
       // Optimistic update: add user message immediately
       const userMessage: Message = {
         id: crypto.randomUUID(),
         role: 'user',
         content: params.content,
         timestamp: new Date(),
-        conversationId: params.conversationId || 'new',
-        status: 'pending',
+        conversationId,
+        status: 'completed', // Mark as completed immediately since it's just the user message
         attachments: params.attachments,
       }
-
-      const conversationId = params.conversationId || 'new'
 
       await queryClient.cancelQueries({
         queryKey: ['messages', 'list', conversationId],
@@ -179,17 +277,10 @@ export function useStreamMessage() {
         (old) => {
           if (!old) return old
 
-          // Update user message status and add assistant message
+          // Add assistant message (user message was already added in onMutate)
           return {
             ...old,
-            data: [
-              ...old.data.map((msg) =>
-                msg.id === data.userMessage.id
-                  ? { ...data.userMessage, status: 'completed' as const }
-                  : msg
-              ),
-              data.assistantMessage,
-            ],
+            data: [...old.data, data.assistantMessage],
           }
         }
       )

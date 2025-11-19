@@ -6,12 +6,14 @@ and clean architecture.
 """
 
 import torch
-from transformers import pipeline
+from transformers import pipeline, SpeechT5Processor, SpeechT5ForTextToSpeech, SpeechT5HifiGan
 import io
 import scipy.io.wavfile
 import logging
 from typing import Optional, AsyncGenerator, List, Dict
 import numpy as np
+from huggingface_hub import hf_hub_download
+import zipfile
 
 logger = logging.getLogger(__name__)
 
@@ -47,10 +49,15 @@ class TTSService:
             force_cpu: Force CPU usage even if CUDA available
         """
         self.model_name = model_name
-        self.model_pipeline = None
+        self.tts_pipeline = None
+        self.model = None
+        self.processor = None
+        self.vocoder = None
+        self.speaker_embeddings = None
         self.device = "cpu" if force_cpu else ("cuda" if torch.cuda.is_available() else "cpu")
         self.is_loaded = False
         self.supported_languages = self._get_supported_languages()
+        self.is_speecht5 = "speecht5" in model_name.lower()
 
     def _get_supported_languages(self) -> List[str]:
         """Get supported languages based on model"""
@@ -72,12 +79,47 @@ class TTSService:
         try:
             logger.info(f"Loading TTS model '{self.model_name}' on {self.device}...")
 
-            # Use pipeline for all models (simplified from original)
-            self.model_pipeline = pipeline(
-                "text-to-speech",
-                model=self.model_name,
-                device=0 if self.device == "cuda" else -1
-            )
+            if self.is_speecht5:
+                # Load SpeechT5 components separately
+                self.processor = SpeechT5Processor.from_pretrained(self.model_name)
+                self.model = SpeechT5ForTextToSpeech.from_pretrained(self.model_name)
+                self.vocoder = SpeechT5HifiGan.from_pretrained("microsoft/speecht5_hifigan")
+
+                # Move to device
+                self.model = self.model.to(self.device)
+                self.vocoder = self.vocoder.to(self.device)
+
+                # Load speaker embeddings - download from HuggingFace directly
+                logger.info("Loading speaker embeddings from CMU Arctic...")
+
+                # Download the speaker embeddings zip file
+                zip_path = hf_hub_download(
+                    repo_id="Matthijs/cmu-arctic-xvectors",
+                    filename="spkrec-xvect.zip",
+                    repo_type="dataset"
+                )
+
+                # Extract and load speaker 7306 embedding
+                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                    # List all .npy files
+                    npy_files = [f for f in zip_ref.namelist() if f.endswith('.npy')]
+                    # Use file at index 7306 (good quality American male voice)
+                    embedding_file = npy_files[7306] if len(npy_files) > 7306 else npy_files[0]
+
+                    # Load the embedding
+                    with zip_ref.open(embedding_file) as f:
+                        embedding = np.load(f)
+                        self.speaker_embeddings = torch.tensor(embedding).unsqueeze(0).to(self.device)
+
+                logger.info(f"✓ Loaded CMU Arctic speaker embedding from {embedding_file}")
+                logger.info("✓ SpeechT5 model loaded successfully")
+            else:
+                # Use pipeline for Bark and other models
+                self.tts_pipeline = pipeline(
+                    "text-to-speech",
+                    model=self.model_name,
+                    device=0 if self.device == "cuda" else -1
+                )
 
             self.is_loaded = True
             logger.info(f"✓ TTS model loaded successfully on {self.device}")
@@ -115,16 +157,32 @@ class TTSService:
         try:
             logger.info(f"Synthesizing text: {text[:50]}...")
 
-            # Generate speech
-            forward_params = kwargs.get("forward_params", {"do_sample": True})
-            speech = self.model_pipeline(text, forward_params=forward_params)
+            if self.is_speecht5:
+                # SpeechT5 synthesis
+                inputs = self.processor(text=text, return_tensors="pt")
+                inputs = {k: v.to(self.device) for k, v in inputs.items()}
 
-            audio_array = speech["audio"]
-            sampling_rate = speech["sampling_rate"]
+                # Generate speech
+                with torch.no_grad():
+                    speech = self.model.generate_speech(
+                        inputs["input_ids"],
+                        self.speaker_embeddings,
+                        vocoder=self.vocoder
+                    )
 
-            # Convert tensor to numpy if needed
-            if isinstance(audio_array, torch.Tensor):
-                audio_array = audio_array.cpu().numpy()
+                # Convert to numpy
+                audio_array = speech.cpu().numpy()
+                sampling_rate = 16000  # SpeechT5 uses 16kHz
+            else:
+                # Bark/other models synthesis
+                forward_params = kwargs.get("forward_params", {"do_sample": True})
+                speech = self.tts_pipeline(text, forward_params=forward_params)
+                audio_array = speech["audio"]
+                sampling_rate = speech["sampling_rate"]
+
+                # Ensure audio is in correct format
+                if isinstance(audio_array, torch.Tensor):
+                    audio_array = audio_array.cpu().numpy()
 
             # Ensure array is correct type
             if isinstance(audio_array, list):

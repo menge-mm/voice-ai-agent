@@ -8,7 +8,7 @@ to provide complete chat functionality with optional audio.
 import logging
 import uuid
 import base64
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, AsyncGenerator
 from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
@@ -207,6 +207,82 @@ class ChatService:
 
         except Exception as e:
             logger.error(f"✗ Chat processing failed: {e}")
+            raise
+
+    async def stream_message(
+        self,
+        text: str,
+        user_id: int,
+        conversation_id: Optional[str] = None,
+        temperature: float = 0.7,
+        max_tokens: int = 500,
+    ) -> AsyncGenerator[str, None]:
+        """
+        Stream a chat message response in real-time.
+
+        Args:
+            text: User message text
+            user_id: ID of the user
+            conversation_id: Optional conversation ID (auto-generated if None)
+            temperature: OpenAI temperature parameter
+            max_tokens: OpenAI max_tokens parameter
+
+        Yields:
+            Text chunks as they're generated
+
+        Note:
+            Messages are saved to database after streaming completes.
+            Audio generation should be handled separately after accumulating full text.
+        """
+        try:
+            # Generate conversation ID if not provided
+            if not conversation_id:
+                conversation_id = str(uuid.uuid4())
+                logger.info(f"Generated new conversation ID: {conversation_id}")
+
+            # Ensure conversation exists in database
+            await self.conversation_repo.get_or_create(
+                conversation_id=conversation_id,
+                user_id=user_id,
+                title=None
+            )
+
+            # Accumulate the full response for database storage
+            accumulated_text = ""
+
+            # Stream AI completion
+            async for chunk in self.openai_service.get_streaming_completion(
+                text=text,
+                conversation_id=conversation_id,
+                temperature=temperature,
+                max_tokens=max_tokens
+            ):
+                accumulated_text += chunk
+                yield chunk
+
+            logger.info(f"✓ Streaming complete: {len(accumulated_text)} chars")
+
+            # Save messages to database after streaming completes
+            messages = [
+                {
+                    "role": "user",
+                    "content": text
+                },
+                {
+                    "role": "assistant",
+                    "content": accumulated_text
+                }
+            ]
+
+            await self.conversation_repo.add_messages(
+                conversation_id=conversation_id,
+                messages=messages
+            )
+
+            logger.info(f"✓ Messages saved to conversation {conversation_id}")
+
+        except Exception as e:
+            logger.error(f"✗ Streaming failed: {e}")
             raise
 
     async def generate_conversation_title(

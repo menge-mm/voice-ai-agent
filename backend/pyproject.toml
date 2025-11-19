@@ -52,6 +52,7 @@ sentry-sdk = {extras = ["fastapi"], version = "^2.18.0"}
 python-jose = {extras = ["cryptography"], version = "^3.3.0"}
 passlib = {extras = ["bcrypt"], version = "^1.7.4"}
 slowapi = "^0.1.9"
+datasets = "^4.4.1"
 
 [tool.poetry.group.dev.dependencies]
 # Testing
