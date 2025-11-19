@@ -15,6 +15,7 @@ interface Message {
 export function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [conversationId, setConversationId] = useState<string | null>(null);
   const { transcribe, isReady, status, progress } = useWhisper();
 
   const handleSendMessage = async (text: string) => {
@@ -31,25 +32,32 @@ export function ChatPage() {
 
     try {
       // Call backend API
-      const response = await fetch('/api/chat', {
+      const response = await fetch('/api/v1/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           text,
-          enable_tts: false,
+          user_id: 1,
+          conversation_id: conversationId,
+          generate_audio: false,
           language: 'en',
         }),
       });
 
       const data = await response.json();
 
+      // Save conversation ID for context
+      if (data.conversation_id) {
+        setConversationId(data.conversation_id);
+      }
+
       // Add assistant message
       const assistantMessage: Message = {
         id: crypto.randomUUID(),
         role: 'assistant',
-        content: data.response_text,
+        content: data.text,
         timestamp: new Date(),
-        audioUrl: data.audio_url,
+        audioUrl: data.audio ? `data:audio/wav;base64,${data.audio}` : undefined,
       };
 
       setMessages((prev) => [...prev, assistantMessage]);
@@ -116,12 +124,9 @@ export function ChatPage() {
           <ChatInput
             onSendMessage={handleSendMessage}
             onVoiceRecord={handleVoiceRecord}
-            disabled={isLoading || !isReady}
-            placeholder={
-              isReady
-                ? 'Type a message or click the mic to speak...'
-                : 'Loading...'
-            }
+            disabled={isLoading}
+            voiceReady={isReady}
+            placeholder="Or type your message here..."
           />
         </Card>
       </div>

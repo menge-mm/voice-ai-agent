@@ -48,6 +48,10 @@ def test_settings_raises_on_missing_required(monkeypatch):
 
 def test_settings_has_correct_defaults(monkeypatch):
     """Test that Settings has correct default values"""
+    # Clear environment variables that might be set by conftest
+    monkeypatch.delenv("DEBUG", raising=False)
+    monkeypatch.delenv("ENVIRONMENT", raising=False)
+
     # Set only required fields
     monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://user:pass@localhost:5432/testdb")
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")

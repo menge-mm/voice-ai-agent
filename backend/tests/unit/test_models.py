@@ -6,6 +6,7 @@ import pytest
 from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+import uuid
 
 
 @pytest.mark.asyncio
@@ -66,8 +67,9 @@ async def test_conversation_model_relationships(async_db_session: AsyncSession):
     async_db_session.add(user)
     await async_db_session.flush()
 
-    # Create conversation
+    # Create conversation (with UUID id since it's a String field)
     conversation = Conversation(
+        id=str(uuid.uuid4()),
         user_id=user.id,
         title="Test Conversation",
     )
@@ -92,7 +94,7 @@ async def test_message_model_timestamps(async_db_session: AsyncSession):
     async_db_session.add(user)
     await async_db_session.flush()
 
-    conversation = Conversation(user_id=user.id, title="Test")
+    conversation = Conversation(id=str(uuid.uuid4()), user_id=user.id, title="Test")
     async_db_session.add(conversation)
     await async_db_session.flush()
 
@@ -125,7 +127,7 @@ async def test_cascade_delete_conversation_messages(async_db_session: AsyncSessi
     async_db_session.add(user)
     await async_db_session.flush()
 
-    conversation = Conversation(user_id=user.id, title="Test")
+    conversation = Conversation(id=str(uuid.uuid4()), user_id=user.id, title="Test")
     async_db_session.add(conversation)
     await async_db_session.flush()
 
@@ -160,7 +162,7 @@ async def test_message_role_validation(async_db_session: AsyncSession):
     async_db_session.add(user)
     await async_db_session.flush()
 
-    conversation = Conversation(user_id=user.id, title="Test")
+    conversation = Conversation(id=str(uuid.uuid4()), user_id=user.id, title="Test")
     async_db_session.add(conversation)
     await async_db_session.flush()
 
@@ -186,7 +188,7 @@ async def test_conversation_default_values(async_db_session: AsyncSession):
     async_db_session.add(user)
     await async_db_session.flush()
 
-    conversation = Conversation(user_id=user.id)
+    conversation = Conversation(id=str(uuid.uuid4()), user_id=user.id)
     async_db_session.add(conversation)
     await async_db_session.commit()
     await async_db_session.refresh(conversation)
@@ -207,8 +209,8 @@ async def test_user_conversations_relationship(async_db_session: AsyncSession):
     await async_db_session.flush()
 
     # Create multiple conversations
-    conv1 = Conversation(user_id=user.id, title="Conversation 1")
-    conv2 = Conversation(user_id=user.id, title="Conversation 2")
+    conv1 = Conversation(id=str(uuid.uuid4()), user_id=user.id, title="Conversation 1")
+    conv2 = Conversation(id=str(uuid.uuid4()), user_id=user.id, title="Conversation 2")
     async_db_session.add_all([conv1, conv2])
     await async_db_session.commit()
 

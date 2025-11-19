@@ -1,13 +1,14 @@
 import { useState, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Mic, MicOff, Send, Loader2 } from 'lucide-react';
+import { Mic, Send, Loader2, Square } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface ChatInputProps {
   onSendMessage: (text: string) => void;
-  onVoiceRecord?: (audioBlob: Blob) => void;
+  onVoiceRecord: (audioBlob: Blob) => void;
   disabled?: boolean;
+  voiceReady?: boolean;
   placeholder?: string;
 }
 
@@ -15,7 +16,8 @@ export function ChatInput({
   onSendMessage,
   onVoiceRecord,
   disabled = false,
-  placeholder = 'Type a message...',
+  voiceReady = true,
+  placeholder = 'Or type your message here...',
 }: ChatInputProps) {
   const [text, setText] = useState('');
   const [isRecording, setIsRecording] = useState(false);
@@ -90,8 +92,14 @@ export function ChatInput({
 
   return (
     <div className="border-t bg-background p-4">
+      {isRecording && (
+        <div className="mb-3 flex items-center justify-center gap-2 text-sm text-destructive">
+          <div className="h-2 w-2 rounded-full bg-destructive animate-pulse" />
+          Recording... Click mic to stop
+        </div>
+      )}
+
       <div className="flex items-end gap-2">
-        {/* Text Input */}
         <Textarea
           ref={textareaRef}
           value={text}
@@ -99,43 +107,41 @@ export function ChatInput({
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
           disabled={disabled}
-          className="max-h-32 min-h-[80px] resize-none"
+          className="flex-1 max-h-32 min-h-[44px] resize-none rounded-2xl px-4 py-3"
           rows={1}
         />
 
-        {/* Voice Recording Button */}
-        {onVoiceRecord && (
-          <Button
-            type="button"
-            variant={isRecording ? 'destructive' : 'outline'}
-            size="icon"
-            onClick={isRecording ? stopRecording : startRecording}
-            disabled={disabled}
-            className={cn(
-              'h-10 w-10 shrink-0',
-              isRecording && 'animate-pulse'
-            )}
-          >
-            {isRecording ? (
-              <MicOff className="h-4 w-4" />
-            ) : (
-              <Mic className="h-4 w-4" />
-            )}
-          </Button>
-        )}
+        <Button
+          type="button"
+          variant={isRecording ? 'destructive' : 'ghost'}
+          size="icon"
+          onClick={isRecording ? stopRecording : startRecording}
+          disabled={disabled || !voiceReady}
+          className={cn(
+            'h-11 w-11 rounded-full shrink-0',
+            isRecording && 'animate-pulse'
+          )}
+          title={isRecording ? 'Stop recording' : voiceReady ? 'Record voice message' : 'Loading...'}
+        >
+          {isRecording ? (
+            <Square className="h-5 w-5" />
+          ) : (
+            <Mic className="h-5 w-5" />
+          )}
+        </Button>
 
-        {/* Send Button */}
         <Button
           type="button"
           onClick={handleSend}
           disabled={disabled || !text.trim()}
           size="icon"
-          className="h-10 w-10 shrink-0"
+          className="h-11 w-11 rounded-full shrink-0"
+          title="Send message"
         >
           {disabled ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
+            <Loader2 className="h-5 w-5 animate-spin" />
           ) : (
-            <Send className="h-4 w-4" />
+            <Send className="h-5 w-5" />
           )}
         </Button>
       </div>

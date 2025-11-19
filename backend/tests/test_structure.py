@@ -19,7 +19,6 @@ def test_required_subdirectories_exist():
         "api/v1/endpoints",
         "core",
         "db/models",
-        "models",
         "services",
         "repositories",
         "cache",
@@ -71,8 +70,10 @@ def test_imports_work():
         import app.api
         import app.services
         import app.repositories
-        import app.models
         import app.db
+        import app.db.models
+        import app.cache
+        import app.middleware
         assert True
     except ImportError as e:
         assert False, f"Import failed: {e}"

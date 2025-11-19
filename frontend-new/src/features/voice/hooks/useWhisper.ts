@@ -11,10 +11,10 @@ interface UseWhisperReturn {
 }
 
 /**
- * Hook to use Whisper STT in Web Worker
+ * Hook to use Whisper STT in Web Worker (following official example)
  * Handles model loading, transcription, and state management
  */
-export function useWhisper(modelName = 'Xenova/whisper-base'): UseWhisperReturn {
+export function useWhisper(): UseWhisperReturn {
   const [status, setStatus] = useState<WhisperStatus>('idle');
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -24,27 +24,32 @@ export function useWhisper(modelName = 'Xenova/whisper-base'): UseWhisperReturn 
 
   // Initialize Web Worker
   useEffect(() => {
-    // Create worker
+    // Create worker using Vite's worker import pattern
     const worker = new Worker(
-      new URL('@/workers/whisper.worker.ts', import.meta.url),
+      new URL('../../../workers/whisper.worker.ts', import.meta.url),
       { type: 'module' }
     );
 
     workerRef.current = worker;
 
     // Handle messages from worker
-    worker.onmessage = (event: MessageEvent) => {
+    const handleMessage = (event: MessageEvent) => {
       const { type, ...data } = event.data;
 
       switch (type) {
         case 'LOADING':
           setStatus('loading');
-          setProgress(data.progress || 0);
+          if (data.progress?.status === 'progress') {
+            const percent = Math.round((data.progress.loaded / data.progress.total) * 100);
+            setProgress(percent);
+            console.log(`Loading: ${percent}%`);
+          }
           break;
 
         case 'READY':
           setStatus('ready');
           setProgress(100);
+          console.log('✓ Whisper model loaded successfully');
           break;
 
         case 'RESULT':
@@ -58,6 +63,7 @@ export function useWhisper(modelName = 'Xenova/whisper-base'): UseWhisperReturn 
         case 'ERROR':
           setStatus('error');
           setError(data.error);
+          console.error('✗ Whisper error:', data.error);
           if (rejectRef.current) {
             rejectRef.current(new Error(data.error));
             rejectRef.current = null;
@@ -66,24 +72,18 @@ export function useWhisper(modelName = 'Xenova/whisper-base'): UseWhisperReturn 
       }
     };
 
-    // Handle worker errors
-    worker.onerror = (error) => {
-      setStatus('error');
-      setError(error.message || 'Worker error');
-      if (rejectRef.current) {
-        rejectRef.current(error);
-        rejectRef.current = null;
-      }
-    };
+    worker.addEventListener('message', handleMessage);
 
     // Initialize model
-    worker.postMessage({ type: 'INIT', model: modelName });
+    worker.postMessage({ type: 'INIT' });
 
     // Cleanup
     return () => {
+      worker.removeEventListener('message', handleMessage);
       worker.terminate();
+      workerRef.current = null;
     };
-  }, [modelName]);
+  }, []);
 
   // Transcribe function
   const transcribe = useCallback(

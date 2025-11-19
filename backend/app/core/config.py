@@ -5,7 +5,7 @@ All configuration is loaded from environment variables with validation
 from functools import lru_cache
 from typing import List
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -41,8 +41,12 @@ class Settings(BaseSettings):
 
     # Redis (Required)
     REDIS_URL: str
+    REDIS_HOST: str = "localhost"
+    REDIS_PORT: int = 6379
+    REDIS_DB: int = 0
     REDIS_POOL_SIZE: int = 10
     REDIS_TIMEOUT: int = 5
+    CACHE_TTL: int = 3600  # Default cache TTL in seconds (1 hour)
 
     # OpenAI (Required)
     OPENAI_API_KEY: str
@@ -54,6 +58,7 @@ class Settings(BaseSettings):
     # TTS
     TTS_MODEL: str = "microsoft/speecht5_tts"
     TTS_DEVICE: str = "cuda"
+    TTS_FORCE_CPU: bool = False
     TTS_CACHE_DIR: str = "/tmp/tts_cache"
 
     # Security (Required)
@@ -62,16 +67,15 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
-    # CORS
-    CORS_ORIGINS: List[str] = ["http://localhost:3000"]
+    # CORS - stored as string internally, accessed as List[str] via property
+    cors_origins_str: str = Field(default="http://localhost:3000", validation_alias="CORS_ORIGINS")
 
-    @field_validator("CORS_ORIGINS", mode="before")
-    @classmethod
-    def parse_cors_origins(cls, v: str | List[str]) -> List[str]:
-        """Parse CORS origins from string or list"""
-        if isinstance(v, str):
-            return [origin.strip() for origin in v.split(",")]
-        return v
+    @property
+    def CORS_ORIGINS(self) -> List[str]:
+        """Parse CORS origins from comma-separated string"""
+        if not self.cors_origins_str or self.cors_origins_str.strip() == "":
+            return ["http://localhost:3000"]
+        return [origin.strip() for origin in self.cors_origins_str.split(",") if origin.strip()]
 
     # Rate Limiting
     RATE_LIMIT_ENABLED: bool = True

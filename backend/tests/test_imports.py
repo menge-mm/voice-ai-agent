@@ -21,7 +21,8 @@ def test_import_uvicorn():
 def test_import_openai():
     """Test OpenAI can be imported"""
     import openai
-    assert openai.__version__ >= "1.57.0"
+    from packaging import version
+    assert version.parse(openai.__version__) >= version.parse("1.57.0")
 
 
 def test_import_transformers():
@@ -68,22 +69,21 @@ def test_coqui_tts_not_installed():
 
 def test_all_backend_modules():
     """Test all backend modules can be imported"""
-    from backend import main
-    from backend import tts_engine
-    from backend import openai_integration
+    from app import main
+    from app.services import tts_service
+    from app.services import openai_service
 
 
-def test_tts_engine_class_exists():
-    """Test TTS engine classes exist"""
-    from backend.tts_engine import TransformersTTSEngine, XTTSEngine
-    assert TransformersTTSEngine is not None
-    assert XTTSEngine is TransformersTTSEngine  # Alias
+def test_tts_service_class_exists():
+    """Test TTS service class exists"""
+    from app.services.tts_service import TTSService
+    assert TTSService is not None
 
 
-def test_openai_client_class_exists():
-    """Test OpenAI client class exists"""
-    from backend.openai_integration import OpenAIClient
-    assert OpenAIClient is not None
+def test_openai_service_class_exists():
+    """Test OpenAI service class exists"""
+    from app.services.openai_service import OpenAIService
+    assert OpenAIService is not None
 
 
 if __name__ == "__main__":

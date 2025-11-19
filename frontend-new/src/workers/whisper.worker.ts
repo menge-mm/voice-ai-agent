@@ -1,138 +1,67 @@
-/**
- * Whisper STT Web Worker
- * Runs Whisper model in background thread to avoid blocking UI
- * Model size: ~190MB, loads once and stays ready
- */
+import { pipeline, env } from '@xenova/transformers';
 
-import { pipeline } from '@xenova/transformers';
+// Configure environment
+env.allowLocalModels = false;
+env.allowRemoteModels = true;
 
-// Worker state
-let transcriber: any = null;
-let isLoading = false;
-let isReady = false;
+console.log('✓ Whisper worker loaded');
 
-// Message types
-type WorkerMessage =
-  | { type: 'INIT'; model: string }
-  | { type: 'TRANSCRIBE'; audio: Float32Array; language?: string }
-  | { type: 'STATUS' };
+class WhisperPipeline {
+  static task = 'automatic-speech-recognition' as const;
+  static model = 'Xenova/whisper-tiny.en';
+  static instance: any = null;
 
-type WorkerResponse =
-  | { type: 'LOADING'; progress?: number }
-  | { type: 'READY' }
-  | { type: 'RESULT'; text: string; chunks?: any[] }
-  | { type: 'ERROR'; error: string }
-  | { type: 'STATUS'; isReady: boolean; isLoading: boolean };
-
-/**
- * Initialize Whisper model
- * This downloads and loads the model in the background
- */
-async function initModel(modelName: string) {
-  if (isReady) {
-    self.postMessage({ type: 'READY' } as WorkerResponse);
-    return;
-  }
-
-  if (isLoading) {
-    return;
-  }
-
-  isLoading = true;
-  self.postMessage({ type: 'LOADING', progress: 0 } as WorkerResponse);
-
-  try {
-    // Load Whisper model with progress tracking
-    transcriber = await pipeline(
-      'automatic-speech-recognition',
-      modelName,
-      {
-        // Progress callback
-        progress_callback: (progress: any) => {
-          if (progress.status === 'downloading') {
-            const percent = Math.round((progress.loaded / progress.total) * 100);
-            self.postMessage({ type: 'LOADING', progress: percent } as WorkerResponse);
-          }
-        },
-      }
-    );
-
-    isReady = true;
-    isLoading = false;
-    self.postMessage({ type: 'READY' } as WorkerResponse);
-  } catch (error: any) {
-    isLoading = false;
-    self.postMessage({
-      type: 'ERROR',
-      error: error.message || 'Failed to load Whisper model',
-    } as WorkerResponse);
+  static async getInstance(progress_callback?: ((progress: any) => void)) {
+    if (this.instance === null) {
+      console.log(`Loading Whisper model: ${this.model}...`);
+      this.instance = await pipeline(this.task, this.model, { progress_callback });
+    }
+    return this.instance;
   }
 }
 
-/**
- * Transcribe audio using loaded Whisper model
- */
-async function transcribe(audio: Float32Array, language?: string) {
-  if (!isReady || !transcriber) {
-    self.postMessage({
-      type: 'ERROR',
-      error: 'Model not ready. Please initialize first.',
-    } as WorkerResponse);
-    return;
-  }
+// Listen for messages from the main thread
+self.addEventListener('message', async (event) => {
+  console.log('Worker received message:', event.data.type);
+  const { type, audio, language } = event.data;
 
-  try {
-    const result = await transcriber(audio, {
-      language: language || null, // null = auto-detect
-      task: 'transcribe',
-      chunk_length_s: 30,
-      stride_length_s: 5,
-      return_timestamps: false,
-    });
+  if (type === 'INIT') {
+    try {
+      // Load model
+      await WhisperPipeline.getInstance((progress) => {
+        console.log('Progress:', progress);
+        self.postMessage({ type: 'LOADING', progress: progress });
+      });
 
-    self.postMessage({
-      type: 'RESULT',
-      text: result.text,
-      chunks: result.chunks,
-    } as WorkerResponse);
-  } catch (error: any) {
-    self.postMessage({
-      type: 'ERROR',
-      error: error.message || 'Transcription failed',
-    } as WorkerResponse);
-  }
-}
+      console.log('Model ready, sending READY message');
+      self.postMessage({ type: 'READY' });
+    } catch (error: any) {
+      console.error('Failed to initialize:', error);
+      self.postMessage({ type: 'ERROR', error: error.message });
+    }
+  } else if (type === 'TRANSCRIBE') {
+    // Get the transcriber
+    const transcriber = await WhisperPipeline.getInstance();
 
-/**
- * Handle messages from main thread
- */
-self.addEventListener('message', async (event: MessageEvent<WorkerMessage>) => {
-  const { type, ...data } = event.data;
+    // Perform transcription
+    try {
+      const result = await transcriber(audio, {
+        language: language || null,
+        task: 'transcribe',
+        chunk_length_s: 30,
+        stride_length_s: 5,
+        return_timestamps: false,
+      });
 
-  switch (type) {
-    case 'INIT':
-      await initModel(data.model);
-      break;
-
-    case 'TRANSCRIBE':
-      await transcribe(data.audio, data.language);
-      break;
-
-    case 'STATUS':
       self.postMessage({
-        type: 'STATUS',
-        isReady,
-        isLoading,
-      } as WorkerResponse);
-      break;
-
-    default:
+        type: 'RESULT',
+        text: result.text,
+      });
+    } catch (error: any) {
       self.postMessage({
         type: 'ERROR',
-        error: `Unknown message type: ${type}`,
-      } as WorkerResponse);
+        error: error.message || 'Transcription failed',
+      });
+    }
   }
 });
-
-// Export type for TypeScript
-export type { WorkerMessage, WorkerResponse };
