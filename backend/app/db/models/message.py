@@ -19,8 +19,8 @@ class Message(Base, TimestampMixin):
     __tablename__ = "messages"
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
-    conversation_id: Mapped[int] = mapped_column(
-        Integer,
+    conversation_id: Mapped[str] = mapped_column(
+        String(255),
         ForeignKey("conversations.id", ondelete="CASCADE"),
         nullable=False,
         index=True,

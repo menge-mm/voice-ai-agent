@@ -5,7 +5,14 @@ import os
 import pytest
 from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-from sqlalchemy.pool import NullPool
+from sqlalchemy.pool import StaticPool
+from sqlalchemy import text
+
+# Import Base and all models at module level so they're registered
+from app.db.base import Base
+from app.db.models.user import User
+from app.db.models.conversation import Conversation
+from app.db.models.message import Message
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -46,37 +53,38 @@ async def async_db_session() -> AsyncGenerator[AsyncSession, None]:
     """
     Provide an async database session for testing.
     Uses in-memory SQLite for fast tests.
+
+    Important: For SQLite :memory: databases, we must use a single connection
+    throughout the test, otherwise each new connection gets a fresh empty database.
     """
     # Create in-memory SQLite database for testing
+    # StaticPool ensures all connections use the same in-memory database
     engine = create_async_engine(
         "sqlite+aiosqlite:///:memory:",
-        poolclass=NullPool,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
     )
 
-    # Create tables
-    from app.db.base import Base
+    # Create all tables
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    # Create session
+    # Create session factory
     async_session_factory = async_sessionmaker(
         engine,
         class_=AsyncSession,
         expire_on_commit=False,
     )
 
+    # Provide session for test
     async with async_session_factory() as session:
         try:
             yield session
-            await session.commit()
         except Exception:
             await session.rollback()
             raise
         finally:
             await session.close()
 
-    # Drop tables after test
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-
+    # Cleanup
     await engine.dispose()

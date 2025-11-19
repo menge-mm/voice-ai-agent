@@ -19,7 +19,7 @@ class Conversation(Base, TimestampMixin):
 
     __tablename__ = "conversations"
 
-    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    id: Mapped[str] = mapped_column(String(255), primary_key=True, index=True)
     user_id: Mapped[int] = mapped_column(
         Integer,
         ForeignKey("users.id", ondelete="CASCADE"),
